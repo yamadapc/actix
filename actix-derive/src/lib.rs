@@ -6,6 +6,7 @@ use proc_macro::TokenStream;
 use syn::DeriveInput;
 
 mod actor;
+mod arbiter_service;
 mod message;
 mod message_response;
 mod supervised;
@@ -35,4 +36,10 @@ pub fn actor_derive(input: TokenStream) -> TokenStream {
 pub fn supervised_derive(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).unwrap();
     supervised::expand(&ast).into()
+}
+
+#[proc_macro_derive(ArbiterService)]
+pub fn arbiter_service_derive(input: TokenStream) -> TokenStream {
+    let ast: DeriveInput = syn::parse(input).unwrap();
+    arbiter_service::expand(&ast).into()
 }
