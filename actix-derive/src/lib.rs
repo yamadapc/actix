@@ -8,6 +8,7 @@ use syn::DeriveInput;
 mod actor;
 mod message;
 mod message_response;
+mod supervised;
 mod utils;
 
 #[proc_macro_derive(Message, attributes(rtype))]
@@ -27,6 +28,11 @@ pub fn message_response_derive_rtype(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(Actor, attributes(actor))]
 pub fn actor_derive(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).unwrap();
-
     actor::expand(&ast).into()
+}
+
+#[proc_macro_derive(Supervised)]
+pub fn supervised_derive(input: TokenStream) -> TokenStream {
+    let ast: DeriveInput = syn::parse(input).unwrap();
+    supervised::expand(&ast).into()
 }
