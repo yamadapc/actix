@@ -3,29 +3,30 @@ use std::pin::Pin;
 use std::task::{self, Poll};
 use std::time::Duration;
 
-use futures_channel::oneshot;
+use pin_project_lite::pin_project;
+use tokio::sync::oneshot;
 
-use pin_project::pin_project;
-
-use crate::clock::Delay;
+use crate::clock::Sleep;
 use crate::handler::{Handler, Message};
 
 use super::channel::{AddressSender, Sender};
 use super::{MailboxError, SendError, ToEnvelope};
 
-/// A `Future` which represents an asynchronous message sending
-/// process.
-#[must_use = "You have to wait on request otherwise the Message wont be delivered"]
-#[pin_project]
-pub struct Request<A, M>
-where
-    A: Handler<M>,
-    A::Context: ToEnvelope<A, M>,
-    M: Message,
-{
-    rx: Option<oneshot::Receiver<M::Result>>,
-    info: Option<(AddressSender<A>, M)>,
-    timeout: Option<Delay>,
+pin_project! {
+    /// A `Future` which represents an asynchronous message sending
+    /// process.
+    #[must_use = "You have to wait on request otherwise the Message wont be delivered"]
+    pub struct Request<A, M>
+    where
+        A: Handler<M>,
+        A::Context: ToEnvelope<A, M>,
+        M: Message,
+    {
+        rx: Option<oneshot::Receiver<M::Result>>,
+        info: Option<(AddressSender<A>, M)>,
+        #[pin]
+        timeout: Option<Sleep>,
+    }
 }
 
 impl<A, M> Request<A, M>
@@ -52,16 +53,16 @@ where
 
     /// Set message delivery timeout
     pub fn timeout(mut self, dur: Duration) -> Self {
-        self.timeout = Some(tokio::time::delay_for(dur));
+        self.timeout = Some(tokio::time::sleep(dur));
         self
     }
 
     fn poll_timeout(
-        &mut self,
+        self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> Poll<Result<M::Result, MailboxError>> {
-        if let Some(ref mut timeout) = self.timeout {
-            match Pin::new(timeout).poll(cx) {
+        if let Some(timeout) = self.project().timeout.as_pin_mut() {
+            match timeout.poll(cx) {
                 Poll::Ready(()) => Poll::Ready(Err(MailboxError::Timeout)),
                 Poll::Pending => Poll::Pending,
             }
@@ -108,17 +109,21 @@ where
     }
 }
 
-/// A `Future` which represents an asynchronous message sending process.
-#[must_use = "future do nothing unless polled"]
-#[pin_project]
-pub struct RecipientRequest<M>
-where
-    M: Message + Send + 'static,
-    M::Result: Send,
-{
-    rx: Option<oneshot::Receiver<M::Result>>,
-    info: Option<(Box<dyn Sender<M>>, M)>,
-    timeout: Option<Delay>,
+pin_project! {
+    /// A `Future` which represents an asynchronous message sending process.
+    #[must_use = "future do nothing unless polled"]
+    pub struct RecipientRequest<M>
+    where
+        M: Message,
+        M: Send,
+        M: 'static,
+        M::Result: Send,
+    {
+        rx: Option<oneshot::Receiver<M::Result>>,
+        info: Option<(Box<dyn Sender<M>>, M)>,
+        #[pin]
+        timeout: Option<Sleep>,
+    }
 }
 
 impl<M> RecipientRequest<M>
@@ -139,16 +144,16 @@ where
 
     /// Set message delivery timeout
     pub fn timeout(mut self, dur: Duration) -> Self {
-        self.timeout = Some(tokio::time::delay_for(dur));
+        self.timeout = Some(tokio::time::sleep(dur));
         self
     }
 
     fn poll_timeout(
-        &mut self,
+        self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> Poll<Result<M::Result, MailboxError>> {
-        if let Some(ref mut timeout) = self.timeout {
-            match Pin::new(timeout).poll(cx) {
+        if let Some(timeout) = self.project().timeout.as_pin_mut() {
+            match timeout.poll(cx) {
                 Poll::Ready(()) => Poll::Ready(Err(MailboxError::Timeout)),
                 Poll::Pending => Poll::Pending,
             }
@@ -182,7 +187,7 @@ where
         }
 
         if this.rx.is_some() {
-            match Pin::new(&mut this.rx.as_mut().unwrap()).poll(cx) {
+            match Pin::new(this.rx.as_mut().unwrap()).poll(cx) {
                 Poll::Ready(Ok(i)) => Poll::Ready(Ok(i)),
                 Poll::Ready(Err(_)) => Poll::Ready(Err(MailboxError::Closed)),
                 Poll::Pending => self.poll_timeout(cx),

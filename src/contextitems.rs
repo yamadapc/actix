@@ -4,11 +4,11 @@ use std::pin::Pin;
 use std::task::{self, Poll};
 use std::time::Duration;
 
-use futures_util::{ready, stream::Stream};
-use pin_project::pin_project;
+use futures_core::{ready, stream::Stream};
+use pin_project_lite::pin_project;
 
 use crate::actor::{Actor, ActorContext, AsyncContext};
-use crate::clock::Delay;
+use crate::clock::Sleep;
 use crate::fut::ActorFuture;
 use crate::handler::{Handler, Message, MessageResponse};
 
@@ -48,21 +48,18 @@ where
     }
 }
 
-pub(crate) struct ActorDelayedMessageItem<A, M>
-where
-    A: Actor,
-    M: Message,
-{
-    msg: Option<M>,
-    timeout: Delay,
-    act: PhantomData<A>,
-    m: PhantomData<M>,
-}
-impl<A, M> Unpin for ActorDelayedMessageItem<A, M>
-where
-    A: Actor,
-    M: Message,
-{
+pin_project! {
+    pub(crate) struct ActorDelayedMessageItem<A, M>
+    where
+        A: Actor,
+        M: Message,
+    {
+        msg: Option<M>,
+        #[pin]
+        timeout: Sleep,
+        act: PhantomData<A>,
+        m: PhantomData<M>,
+    }
 }
 
 impl<A, M> ActorDelayedMessageItem<A, M>
@@ -73,7 +70,7 @@ where
     pub fn new(msg: M, timeout: Duration) -> Self {
         Self {
             msg: Some(msg),
-            timeout: tokio::time::delay_for(timeout),
+            timeout: tokio::time::sleep(timeout),
             act: PhantomData,
             m: PhantomData,
         }
@@ -95,8 +92,8 @@ where
         ctx: &mut A::Context,
         task: &mut task::Context<'_>,
     ) -> Poll<Self::Output> {
-        let this = self.get_mut();
-        ready!(Pin::new(&mut this.timeout).poll(task));
+        let this = self.project();
+        ready!(this.timeout.poll(task));
         let fut = A::handle(act, this.msg.take().unwrap(), ctx);
         fut.handle::<()>(ctx, None);
         Poll::Ready(())
@@ -149,16 +146,17 @@ where
     }
 }
 
-#[pin_project]
-pub(crate) struct ActorMessageStreamItem<A, M, S>
-where
-    A: Actor,
-    M: Message,
-{
-    #[pin]
-    stream: S,
-    act: PhantomData<A>,
-    msg: PhantomData<M>,
+pin_project! {
+    pub(crate) struct ActorMessageStreamItem<A, M, S>
+    where
+        A: Actor,
+        M: Message,
+    {
+        #[pin]
+        stream: S,
+        act: PhantomData<A>,
+        msg: PhantomData<M>,
+    }
 }
 
 impl<A, M, S> ActorMessageStreamItem<A, M, S>

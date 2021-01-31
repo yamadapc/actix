@@ -42,6 +42,8 @@
 #![allow(clippy::needless_doctest_main)]
 #![deny(nonstandard_style, rust_2018_idioms)]
 #![warn(deprecated_in_future, trivial_casts, trivial_numeric_casts)]
+// TODO: temporary allow deprecated until resolver actor is removed.
+#![allow(deprecated)]
 
 #[doc(hidden)]
 #[cfg(feature = "derive")]
@@ -69,13 +71,13 @@ pub mod registry;
 pub mod sync;
 pub mod utils;
 
+pub use actix_macros::main;
 pub use actix_rt::{Arbiter, System, SystemRunner};
 
 pub use crate::actor::{
     Actor, ActorContext, ActorState, AsyncContext, Running, SpawnHandle, Supervised,
 };
 pub use crate::address::{Addr, MailboxError, Recipient, WeakAddr, WeakRecipient};
-// pub use crate::arbiter::{Arbiter, ArbiterBuilder};
 pub use crate::context::Context;
 pub use crate::fut::{ActorFuture, ActorStream, FinishStream, WrapFuture, WrapStream};
 pub use crate::handler::{
@@ -105,6 +107,7 @@ pub mod prelude {
     #[cfg(feature = "derive")]
     pub use actix_derive::*;
 
+    pub use actix_macros::main;
     pub use actix_rt::{Arbiter, System, SystemRunner};
 
     pub use crate::actor::{
@@ -130,7 +133,9 @@ pub mod prelude {
     pub use crate::io;
     pub use crate::utils::{Condition, IntervalFunc, TimerFunc};
 
-    pub use futures_util::{future::Future, stream::Stream};
+    // TODO: remove std re-export?
+    pub use futures_core::stream::Stream;
+    pub use std::future::Future;
 }
 
 pub mod dev {
@@ -173,11 +178,11 @@ pub mod dev {
 ///
 /// ```
 /// use std::time::{Duration, Instant};
-/// use tokio::time::delay_for;
+/// use tokio::time::sleep;
 ///
 /// fn main() {
 ///   actix::run(async move {
-///       delay_for(Duration::from_millis(100)).await;
+///       sleep(Duration::from_millis(100)).await;
 ///       actix::System::current().stop();
 ///   });
 /// }
@@ -189,7 +194,7 @@ pub mod dev {
 #[allow(clippy::unit_arg)]
 pub fn run<R>(f: R) -> std::io::Result<()>
 where
-    R: futures_util::future::Future<Output = ()> + 'static,
+    R: std::future::Future<Output = ()> + 'static,
 {
     Ok(actix_rt::System::new("Default").block_on(f))
 }
@@ -201,7 +206,7 @@ where
 /// This function panics if the actix system is not running.
 pub fn spawn<F>(f: F)
 where
-    F: futures_util::future::Future<Output = ()> + 'static,
+    F: std::future::Future<Output = ()> + 'static,
 {
     actix_rt::spawn(f);
 }

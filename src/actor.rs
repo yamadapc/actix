@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use actix_rt::Arbiter;
-use futures_util::stream::Stream;
+use futures_core::stream::Stream;
 use log::error;
 
 use crate::address::{channel, Addr};
@@ -341,8 +341,8 @@ where
     /// }
     ///
     /// fn main() {
-    ///     let sys = System::new("example");
-    ///     let addr = MyActor.start();
+    ///     let mut sys = System::new("example");
+    ///     let addr = sys.block_on(async { MyActor.start() });
     ///     sys.run();
     ///  }
     /// ```

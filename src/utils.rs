@@ -3,10 +3,11 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use futures_channel::oneshot;
+use pin_project_lite::pin_project;
+use tokio::sync::oneshot;
 
 use crate::actor::Actor;
-use crate::clock::{interval_at, Delay, Instant, Interval};
+use crate::clock::{interval_at, Instant, Interval, Sleep};
 use crate::fut::{ActorFuture, ActorStream};
 
 pub struct Condition<T>
@@ -44,48 +45,50 @@ where
     }
 }
 
-/// An `ActorFuture` that runs a function in the actor's context after a specified amount of time.
-///
-/// Unless you specifically need access to the future, use [`Context::run_later`] instead.
-///
-/// [`Context::run_later`]: ../prelude/trait.AsyncContext.html#method.run_later
-///
-/// ```rust
-/// # use std::io;
-/// use std::time::Duration;
-/// use actix::prelude::*;
-/// use actix::utils::TimerFunc;
-///
-/// struct MyActor;
-///
-/// impl MyActor {
-///     fn stop(&mut self, context: &mut Context<Self>) {
-///         System::current().stop();
-///     }
-/// }
-///
-/// impl Actor for MyActor {
-///    type Context = Context<Self>;
-///
-///    fn started(&mut self, context: &mut Context<Self>) {
-///        // spawn a delayed future into our context
-///        TimerFunc::new(Duration::from_millis(100), Self::stop)
-///            .spawn(context);
-///    }
-/// }
-/// # fn main() {
-/// #    let sys = System::new("example");
-/// #    let addr = MyActor.start();
-/// #    sys.run();
-/// # }
-
-#[must_use = "future do nothing unless polled"]
-pub struct TimerFunc<A>
-where
-    A: Actor,
-{
-    f: Option<Box<dyn TimerFuncBox<A>>>,
-    timeout: Delay,
+pin_project! {
+    /// An `ActorFuture` that runs a function in the actor's context after a specified amount of time.
+    ///
+    /// Unless you specifically need access to the future, use [`Context::run_later`] instead.
+    ///
+    /// [`Context::run_later`]: ../prelude/trait.AsyncContext.html#method.run_later
+    ///
+    /// ```rust
+    /// # use std::io;
+    /// use std::time::Duration;
+    /// use actix::prelude::*;
+    /// use actix::utils::TimerFunc;
+    ///
+    /// struct MyActor;
+    ///
+    /// impl MyActor {
+    ///     fn stop(&mut self, context: &mut Context<Self>) {
+    ///         System::current().stop();
+    ///     }
+    /// }
+    ///
+    /// impl Actor for MyActor {
+    ///    type Context = Context<Self>;
+    ///
+    ///    fn started(&mut self, context: &mut Context<Self>) {
+    ///        // spawn a delayed future into our context
+    ///        TimerFunc::new(Duration::from_millis(100), Self::stop)
+    ///            .spawn(context);
+    ///    }
+    /// }
+    /// # fn main() {
+    /// #    let mut sys = System::new("example");
+    /// #    let addr = sys.block_on(async { MyActor.start() });
+    /// #    sys.run();
+    /// # }
+    #[must_use = "future do nothing unless polled"]
+    pub struct TimerFunc<A>
+    where
+        A: Actor,
+    {
+        f: Option<Box<dyn TimerFuncBox<A>>>,
+        #[pin]
+        timeout: Sleep,
+    }
 }
 
 impl<A> TimerFunc<A>
@@ -99,7 +102,7 @@ where
     {
         TimerFunc {
             f: Some(Box::new(f)),
-            timeout: tokio::time::delay_for(timeout),
+            timeout: tokio::time::sleep(timeout),
         }
     }
 }
@@ -128,8 +131,8 @@ where
         ctx: &mut <Self::Actor as Actor>::Context,
         task: &mut Context<'_>,
     ) -> Poll<Self::Output> {
-        let this = self.get_mut();
-        match Pin::new(&mut this.timeout).poll(task) {
+        let this = self.project();
+        match this.timeout.poll(task) {
             Poll::Ready(_) => {
                 if let Some(f) = this.f.take() {
                     f.call(act, ctx);
@@ -173,8 +176,8 @@ where
 ///    }
 /// }
 /// # fn main() {
-/// #    let sys = System::new("example");
-/// #    let addr = MyActor.start();
+/// #    let mut sys = System::new("example");
+/// #    let addr = sys.block_on(async { MyActor.start() });
 /// #    sys.run();
 /// # }
 /// ```

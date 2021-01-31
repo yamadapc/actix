@@ -1,11 +1,13 @@
 //! Custom `Future` implementation with `Actix` support
 
+use std::future::Future;
 use std::marker::PhantomData;
+use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use futures_util::{future::Future, stream::Stream};
-use pin_project::pin_project;
+use futures_core::stream::Stream;
+use pin_project_lite::pin_project;
 
 mod chain;
 mod either;
@@ -35,7 +37,6 @@ pub use self::then::Then;
 pub use self::timeout::Timeout;
 
 use crate::actor::Actor;
-use std::pin::Pin;
 
 /// Trait for types which are a placeholder of a value that may become
 /// available at some later point in time.
@@ -224,7 +225,7 @@ pub trait ActorStream {
             &mut <Self::Actor as Actor>::Context,
         ) -> U,
         U: IntoActorFuture<Actor = Self::Actor>,
-        Self: Unpin + Sized,
+        Self: Sized,
     {
         stream_then::new(self, f)
     }
@@ -250,7 +251,7 @@ pub trait ActorStream {
     /// `err` value get returned as a timeout error.
     fn timeout(self, timeout: Duration) -> StreamTimeout<Self>
     where
-        Self: Sized + Unpin,
+        Self: Sized,
     {
         stream_timeout::new(self, timeout)
     }
@@ -258,7 +259,7 @@ pub trait ActorStream {
     /// Converts a stream to a future that resolves when stream finishes.
     fn finish(self) -> StreamFinish<Self>
     where
-        Self: Sized + Unpin,
+        Self: Sized,
     {
         stream_finish::new(self)
     }
@@ -355,14 +356,15 @@ impl<F: Future, A: Actor> WrapFuture<A> for F {
     }
 }
 
-#[pin_project]
-pub struct FutureWrap<F, A>
-where
-    F: Future,
-{
-    #[pin]
-    fut: F,
-    act: PhantomData<A>,
+pin_project! {
+    pub struct FutureWrap<F, A>
+    where
+        F: Future,
+    {
+        #[pin]
+        fut: F,
+        act: PhantomData<A>,
+    }
 }
 
 /// Converts normal future into `ActorFuture`, allowing its processing to
@@ -416,7 +418,7 @@ where
     fn into_actor(self, a: &A) -> Self::Stream;
 }
 
-impl<S: Stream + Unpin, A: Actor> WrapStream<A> for S {
+impl<S: Stream, A: Actor> WrapStream<A> for S {
     type Stream = StreamWrap<S, A>;
     type Item = S::Item;
 
@@ -429,15 +431,18 @@ impl<S: Stream + Unpin, A: Actor> WrapStream<A> for S {
         wrap_stream(self)
     }
 }
-#[pin_project]
-pub struct StreamWrap<S, A>
-where
-    S: Stream,
-{
-    #[pin]
-    st: S,
-    act: PhantomData<A>,
+
+pin_project! {
+    pub struct StreamWrap<S, A>
+    where
+        S: Stream,
+    {
+        #[pin]
+        st: S,
+        act: PhantomData<A>,
+    }
 }
+
 /// Converts normal stream into `ActorStream`
 pub fn wrap_stream<S, A>(s: S) -> StreamWrap<S, A>
 where

@@ -7,7 +7,7 @@
 
 [![crates.io](https://meritbadge.herokuapp.com/actix)](https://crates.io/crates/actix)
 [![Documentation](https://docs.rs/actix/badge.svg)](https://docs.rs/actix)
-[![Version](https://img.shields.io/badge/rustc-1.40+-ab6000.svg)](https://blog.rust-lang.org/2019/12/19/Rust-1.40.0.html)
+[![Version](https://img.shields.io/badge/rustc-1.46+-ab6000.svg)](https://blog.rust-lang.org/2019/12/19/Rust-1.46.0.html)
 <br />
 ![License](https://img.shields.io/crates/l/actix.svg)
 [![codecov](https://codecov.io/gh/actix/actix/branch/master/graph/badge.svg)](https://codecov.io/gh/actix/actix)
@@ -36,7 +36,7 @@
 - Uses [futures](https://crates.io/crates/futures) for asynchronous message handling
 - Actor supervision
 - Typed messages (No `Any` type)
-- Runs on stable Rust 1.40+
+- Runs on stable Rust 1.46+
 
 ## Usage
 
@@ -86,9 +86,9 @@ impl Actor for MyActor {
 }
 
 fn main() {
-    let system = System::new("test");
+    let mut system = System::new("test");
 
-    let addr = MyActor.start();
+    let addr = system.block_on(async { MyActor.start() });
 
     system.run();
 }
@@ -107,7 +107,7 @@ for more information on the actor lifecycle.
 An Actor communicates with another Actor by sending messages. In actix all messages
 are typed. Let's define a simple `Sum` message with two `usize` parameters,
 and an actor which will accept this message and return the sum of those two numbers.
-Here we use the [actix-rt](https://github.com/actix/actix-net) as way start our `System`
+Here we use the `#[actix::main]` as way start our `System`
 and drive our main `Future` so we can easily `.await` for the messages sent to the `Actor`.
 
 ```rust
@@ -134,7 +134,7 @@ impl Handler<Sum> for Summator {
     }
 }
 
-#[actix_rt::main] // <- starts the system and block until future resolves
+#[actix::main] // <- starts the system and block until future resolves
 async fn main() {
     let addr = Summator.start();
     let res = addr.send(Sum(10, 5)).await; // <- send message and get future for result
@@ -201,29 +201,31 @@ impl Handler<Ping> for Game {
 }
 
 fn main() {
-    let system = System::new("test");
+    let mut system = System::new("test");
 
     // To get a Recipient object, we need to use a different builder method
     // which will allow postponing actor creation
-    let addr = Game::create(|ctx| {
-        // now we can get an address of the first actor and create the second actor
-        let addr = ctx.address();
-        let addr2 = Game {
-            counter: 0,
-            name: String::from("Game 2"),
-            addr: addr.recipient(),
-        }
-        .start();
-
-        // let's start pings
-        addr2.do_send(Ping { id: 10 });
-
-        // now we can finally create first actor
-        Game {
-            counter: 0,
-            name: String::from("Game 1"),
-            addr: addr2.recipient(),
-        }
+    let addr = system.block_on(async {
+        Game::create(|ctx| {
+                // now we can get an address of the first actor and create the second actor
+                let addr = ctx.address();
+                let addr2 = Game {
+                    counter: 0,
+                    name: String::from("Game 2"),
+                    addr: addr.recipient(),
+                }
+                .start();
+        
+                // let's start pings
+                addr2.do_send(Ping { id: 10 });
+        
+                // now we can finally create first actor
+                Game {
+                    counter: 0,
+                    name: String::from("Game 1"),
+                    addr: addr2.recipient(),
+                }
+            });
     });
 
     system.run();
